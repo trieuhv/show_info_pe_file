@@ -1,0 +1,181 @@
+﻿#include <Windows.h>
+#include <iostream>
+using namespace std;
+
+	int i = 0;
+	HANDLE hMapObject, hFile;			//File Mapping Object
+	LPVOID lpBase;						//Pointer to the base memory of mapped file
+	PIMAGE_DOS_HEADER dosHeader;		//Pointer to DOS Header
+	PIMAGE_NT_HEADERS ntHeader;			//Pointer to NT Header
+	IMAGE_FILE_HEADER header;			//Pointer to image file header of NT Header 
+	IMAGE_OPTIONAL_HEADER opHeader;		//Optional Header of PE files present in NT Header structure
+	PIMAGE_SECTION_HEADER pSecHeader;	//Section Header or Section Table Header
+OPENFILENAME ofn;
+
+char szFile[100];
+CHAR buff[255];
+DWORD num;
+
+DWORD EOP;
+
+int main()
+{
+	/****************************************************************************
+	fill struct openfilename
+	*/
+	ofn.lStructSize = sizeof(ofn);
+	ofn.hwndOwner = NULL;
+	ofn.lpstrFile = (LPSTR)szFile;
+	ofn.nMaxFile = sizeof(szFile);
+	ofn.lpstrFilter = ".exe";
+	ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_LONGNAMES | OFN_EXPLORER | OFN_HIDEREADONLY;
+	if (GetOpenFileName(&ofn))
+	{
+		/*
+		Open file
+		*/
+		//Open the Exe File 
+		hFile = CreateFile(ofn.lpstrFile, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+		if (hFile == INVALID_HANDLE_VALUE) { cout << "\nERROR : Could not open the file specified\n" ; };
+
+		//Mapping Given EXE file to Memory
+		hMapObject = CreateFileMapping(hFile, NULL, PAGE_READONLY, 0, 0, NULL);
+		lpBase = MapViewOfFile(hMapObject, FILE_MAP_READ, 0, 0, 0);
+
+		//Get the DOS Header Base 
+		dosHeader = (PIMAGE_DOS_HEADER)lpBase;// 0x04000000
+
+											  //Check for Valid DOS file
+		if (dosHeader->e_magic == IMAGE_DOS_SIGNATURE) {
+			//Dump the Dos Header info
+			cout << "\nValid Dos Exe File\n------------------\n" << endl;
+			cout << "\nDumping DOS Header Info....\n---------------------------" << endl;
+			cout << "Magic number : " << dosHeader->e_magic << endl;
+			cout << "Bytes on last page of file :" <<  dosHeader->e_cblp << endl;
+			cout <<  "Pages in file : " <<  dosHeader->e_cp << endl;
+			cout <<  "Relocation : " <<  dosHeader->e_crlc << endl;
+			cout <<  "Size of header in paragraphs : " <<  dosHeader->e_cparhdr << endl;
+			cout <<  "Minimum extra paragraphs needed : " <<  dosHeader->e_minalloc << endl;
+			cout <<  "Maximum extra paragraphs needed : " <<  dosHeader->e_maxalloc << endl;
+			cout <<  "Initial (relative) SS value : " <<  dosHeader->e_ss << endl;
+			cout <<  "Initial SP value : " <<  dosHeader->e_sp << endl;
+			
+			cout <<  "Initial IP value : " <<  dosHeader->e_ip << endl;
+			cout <<  "Initial (relative) CS value : " <<  dosHeader->e_cs << endl;
+			cout <<  "File address of relocation table : " <<  dosHeader->e_lfarlc << endl;
+			cout <<  "Overlay number : " <<  dosHeader->e_ovno << endl;
+			cout <<  "OEM identifier : " <<  dosHeader->e_oemid << endl;
+			cout <<  "OEM information(e_oemid specific) :" <<  dosHeader->e_oeminfo << endl;
+			cout <<  "RVA address of PE header : " <<  dosHeader->e_lfanew << endl;
+
+			cout << "Checksum : " << dosHeader->e_csum << endl;
+			cout << "\n===============================================================================\n" << endl;
+		}
+		else {
+			cout << "\nGiven File is not a valid DOS file\n" << endl;
+			goto end;
+		}
+
+		//Offset of NT Header is found at 0x3c location in DOS header specified by e_lfanew
+		//Get the Base of NT Header(PE Header) 	= dosHeader + RVA address of PE header
+		ntHeader = (PIMAGE_NT_HEADERS)((DWORD)(dosHeader)+(dosHeader->e_lfanew)) ;
+		//Identify for valid PE file  
+		if (ntHeader->Signature == IMAGE_NT_SIGNATURE) {
+			cout << "\nValid PE file \n-------------\n" << endl;
+
+			//Dump NT Header Info....
+			cout << "\nDumping COFF/PE Header Info....\n--------------------------------" << endl;
+			cout << "Signature :" << "PE" << endl;
+
+
+			//Get the IMAGE FILE HEADER Structure
+			header = ntHeader->FileHeader;
+
+			//Determine Machine Architechture
+			cout << "Machine Architechture :" << endl;
+			switch (header.Machine) { //Only few are determined (for remaining refer to the above specification)
+			case 0x0:	 cout << "All " << endl; break;
+			case 0x14d:  cout << "Intel i860" << endl; break;
+			case 0x14c:  cout << "Intel i386,i486,i586" << endl; break;
+			case 0x200:  cout << "Intel Itanium processor" << endl; break;
+			case 0x8664: cout << "AMD x64" << endl; break;
+			case 0x162:  cout << "MIPS R3000" << endl; break;
+			case 0x166:  cout << "MIPS R4000" << endl; break;
+			case 0x183:  cout << "DEC Alpha AXP" << endl; break;
+			default:	 cout << "Not Found" << endl; break;
+			}
+			//Determine the characteristics of the given file
+			cout << "Characteristics : " ;
+			if ((header.Characteristics & 0x0002) == 0x0002) cout << "Executable Image ," << endl;
+			if ((header.Characteristics & 0x0020) == 0x0020) cout << "Application can address > 2GB ," << endl;
+			if ((header.Characteristics & 0x1000) == 0x1000) cout << "System file (Kernel Mode Driver(I think)) ," << endl;
+			if ((header.Characteristics & 0x2000) == 0x2000) cout << "Dll file ," << endl;
+			if ((header.Characteristics & 0x4000) == 0x4000) cout << "Application runs only in Uniprocessor ," << endl;
+
+			cout << "No.sections(size) :" <<  header.NumberOfSections << endl;			//Determine number of sections
+			cout << "No.entries in symbol table :" <<  header.NumberOfSymbols << endl;
+			cout << "Size of optional header :" <<  header.SizeOfOptionalHeader << endl;
+
+			cout << "\n\nDumping PE Optional Header Info....\n-----------------------------------" << endl;
+			//Info about Optional Header
+			opHeader = ntHeader->OptionalHeader;
+			//cout << "\n\nInfo of optional Header\n-----------------------");
+			
+			
+			cout << "Size of code segment(.text) : " <<  opHeader.SizeOfCode << endl;
+			cout <<  "Base address of code segment(RVA) :" <<  opHeader.BaseOfCode << endl;
+			cout << "Size of Initialized data : " <<  opHeader.SizeOfInitializedData << endl;
+			cout <<  "Base address of data segment(RVA) :" <<  opHeader.BaseOfData << endl;
+			cout <<  "Section Alignment :" <<  opHeader.SectionAlignment << endl;
+			cout << "Major Linker Version : " <<  opHeader.MajorLinkerVersion << endl;
+			cout << "Minor Linker Version : " <<  opHeader.MinorLinkerVersion << endl;
+
+			cout << "Size of Image: " << opHeader.SizeOfImage << endl;
+			cout << "File Alignment: " << opHeader.FileAlignment << endl;
+			cout << "Pointer to Entry Point : " << opHeader.AddressOfEntryPoint << endl;
+			cout << "Base Address of the Image : " << opHeader.ImageBase << endl;
+
+
+			cout << "Sections Header Info......" << endl << "--------------------------" << endl;
+			 
+			//Retrive a pointer to First Section Header(or Section Table Entry)
+
+
+			for (pSecHeader = IMAGE_FIRST_SECTION(ntHeader), i = 0; i < ntHeader->FileHeader.NumberOfSections; i++, pSecHeader++) {
+				cout << endl << endl;
+				cout << "Section Header name : " <<  pSecHeader->Name << endl;
+				
+				cout <<  "Characteristics : Contain Code ";
+				if ((pSecHeader->Characteristics & 0x20) == 0x20)cout << "|| Executable Code ";
+				if ((pSecHeader->Characteristics & 0x40) == 0x40)cout << "|| Initialized Data ";
+				if ((pSecHeader->Characteristics & 0x80) == 0x80)cout << "|| Uninitialized Data ";
+				if ((pSecHeader->Characteristics & 0x80) == 0x80)cout << "|| Uninitialized Data ";
+				if ((pSecHeader->Characteristics & 0x200) == 0x200)cout << "|| Comments and Linker Commands ";
+				if ((pSecHeader->Characteristics & 0x10000000) == 0x10000000)cout << "|| Shareable Data(via DLLs ";
+				if ((pSecHeader->Characteristics & 0x40000000) == 0x40000000)cout << "|| Readable ";
+				if ((pSecHeader->Characteristics & 0x80000000) == 0x80000000)cout << "|| Writable ";
+				cout << endl;
+
+				cout << "Raw Address : " << pSecHeader->PointerToRawData << endl;
+
+				cout << "Raw Size : " << pSecHeader->SizeOfRawData << endl;
+				
+				cout << "Virtual Address(RVA) :" << pSecHeader->VirtualAddress << endl;
+				
+				cout << "Virtual Size : " << pSecHeader->Misc.VirtualSize << endl;
+
+			}
+
+
+			cout << "\n===============================================================================\n" << endl;
+			system("pause");
+		}
+		else goto end;
+
+	end:
+		//UnMaping 
+		UnmapViewOfFile(lpBase);
+		CloseHandle(hMapObject);
+
+	}
+}
